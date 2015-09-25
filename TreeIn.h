@@ -3,6 +3,7 @@
 
 /**
 @file TreeIn.h
+@brief Intrusive Binary Tree (unbalenced).
 
 This file defines a pair of templates (TreeInRoot and TreeInNode) that
 implement an intrusive binary tree.
@@ -131,7 +132,7 @@ protected:
 	void add(N* node);
 	void remove(N& node);
 	void remove(N* node);
-	N* find(K key);
+	N* find(K key) const;
 
 	N* base() const { return base_; }
 	N* first() const;
@@ -167,8 +168,7 @@ template <class R, class N, class K, int n> class TreeInNode {
 	typedef class TreeInRoot<R, N, K, n> Root;   ///< Type of TreeInRoot
 	typedef class TreeInNode<R, N, K, n> Node;   ///< Type of DListIInNode
 protected:
-	TreeInNode(R* root = 0);
-	TreeInNode(R&);
+	TreeInNode(); // No default add as that needs our Parent already constructed
 	~TreeInNode();
 
 	void addTo(R& root);

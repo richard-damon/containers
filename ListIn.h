@@ -3,6 +3,7 @@
 
 /**
 @file ListIn.h
+@brief Intrusive Singly Linked List.
 
 This file defines a pair of templates (ListInRoot and ListInNode) that
 implement an intrusive singly linked list.
@@ -100,6 +101,7 @@ Intrusive Singly Linked List, List.
 */
 template<class R, class N, int n> class ListInRoot {
     friend ListInNode<R, N, n>;
+    friend N;
     typedef ListInRoot<R, N, n> Root;    ///< Type of ListInRoot
 	typedef ListInNode<R, N, n> Node;    ///< Type of ListInNode
 protected:
@@ -140,6 +142,7 @@ Intrusive Singly Linked List, Node.
 */
 template<class R, class N, int n> class ListInNode {
     friend ListInRoot<R, N, n>;
+    friend R;
 	typedef ListInNode<R, N, n> Node;    ///< Type of ListInNode
     typedef ListInRoot<R, N, n> Root;    ///< Type of ListInRoot
 protected:

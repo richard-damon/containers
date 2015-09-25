@@ -3,6 +3,7 @@
 
 /**
 @file TreeIn.hpp
+@brief Intrusive Binary Tree (unbalenced), Implementation.
 
 This file defines a pair of templates (TreeInRoot and TreeInNode) that
 implement an intrusive binary tree.
@@ -40,7 +41,8 @@ THE SOFTWARE.
 #define TREEIN_CHECK 1
 
 #if TREEIN_CHECK
-#include <assert.h>
+#include "FreeRTOS.h"
+#define assert configASSERT
 #include <iostream>
 #endif
 
@@ -56,7 +58,7 @@ classes deriving from multiple versions of TreeInRoot/ListInNode
 #if TREEIN_CHECK
 /**
 */
-template <class R, class N, class K, int n = 0> inline void TreeInNode<R, N, K, n>::check() const {
+template <class R, class N, class K, int n> inline void TreeInNode<R, N, K, n>::check() const {
 	N const* me = static_cast<N const*>(this);
 	if (root_) {
 		Root* myroot = root_;
@@ -77,7 +79,7 @@ template <class R, class N, class K, int n = 0> inline void TreeInNode<R, N, K, 
 
 		if (right_) {
 			Node* myright = static_cast<Node*>(right_);
-			assert(static_cast<Node*>(right_)->parent_ == me);
+			assert(myright->parent_ == me);
 			assert(myroot->compare(*me, *right_) >= 0);
 			assert(myroot->compare(*right_, *me) <= 0);
 		}
@@ -88,7 +90,7 @@ template <class R, class N, class K, int n = 0> inline void TreeInNode<R, N, K, 
 	}
 }
 
-template <class R, class N, class K, int n = 0> inline void TreeInRoot<R, N, K, n>::check() const {
+template <class R, class N, class K, int n> inline void TreeInRoot<R, N, K, n>::check() const {
 	R const* me = static_cast<R const*>(this);
 	if (base_) {
 		Node* node = static_cast<Node*>(base_);
@@ -102,7 +104,7 @@ template <class R, class N, class K, int n = 0> inline void TreeInRoot<R, N, K, 
 /**
 Return node next in sort sequence.
 */
-template <class R, class N, class K, int n = 0> inline N* TreeInNode<R, N, K, n>::next() const {
+template <class R, class N, class K, int n> inline N* TreeInNode<R, N, K, n>::next() const {
 	N const* node;
 	Node const* mynode;
 	if (right_) {
@@ -132,7 +134,7 @@ template <class R, class N, class K, int n = 0> inline N* TreeInNode<R, N, K, n>
 /**
 Return previous node in sort sequence.
 */
-template <class R, class N, class K, int n = 0> inline N* TreeInNode<R, N, K, n>::prev() const {
+template <class R, class N, class K, int n> inline N* TreeInNode<R, N, K, n>::prev() const {
 	N const* node;
 	Node const* mynode;
 	if (left_) {
@@ -159,7 +161,7 @@ template <class R, class N, class K, int n = 0> inline N* TreeInNode<R, N, K, n>
 	return 0;
 }
 
-template <class R, class N, class K, int n = 0> inline N* TreeInRoot<R, N, K, n>::first() const {
+template <class R, class N, class K, int n> inline N* TreeInRoot<R, N, K, n>::first() const {
 	if (base_ == 0) return 0;
 	N* node = base_;
 	Node* mynode = node;
@@ -171,7 +173,7 @@ template <class R, class N, class K, int n = 0> inline N* TreeInRoot<R, N, K, n>
 }
 
 
-template <class R, class N, class K, int n = 0> inline N* TreeInRoot<R, N, K, n>::last() const {
+template <class R, class N, class K, int n> inline N* TreeInRoot<R, N, K, n>::last() const {
 	if (base_ == 0) return 0;
 	N* node = base_;
 	Node* mynode = node;
@@ -186,7 +188,7 @@ template <class R, class N, class K, int n = 0> inline N* TreeInRoot<R, N, K, n>
 Remove node from whatever tree it is on, if it is on a tree.
 */
 
-template <class R, class N, class K, int n = 0> inline void TreeInNode<R, N, K, n>::remove() {
+template <class R, class N, class K, int n> inline void TreeInNode<R, N, K, n>::remove() {
  	if (root_) {
 		static_cast<Root*>(root_)->check();
 		Node* parent = static_cast<Node*>(parent_);
@@ -256,7 +258,7 @@ Remove Node from List
 @param node node to be removed.
 If node is not on this list, nothing will be done.
 */
-template <class R, class N, class K, int n_> inline void TreeInRoot<R, N, K, n_>::remove(N& node) {
+template <class R, class N, class K, int n> inline void TreeInRoot<R, N, K, n>::remove(N& node) {
 	Node& mynode = static_cast<Node&>(node);
 	if (mynode.root_ == this) {
 		// Only remove if node is on this list.
@@ -363,6 +365,24 @@ template<class R, class N, class K, int n> void TreeInNode<R, N, K, n>::addTo(R*
 }
 
 /**
+ * find a node
+ */
+
+template<class R, class N, class K, int n> N* TreeInRoot<R, N, K, n>::find(K key) const {
+	N* node = base();
+	while(node) {
+		int cmp = compareKey(*node, key);
+		if(cmp == 0) break; // Found the node, return it
+		if(cmp < 0) {
+			node = static_cast<Node*>(node)->left_;
+		} else {
+			node = static_cast<Node*>(node)->right_;
+		}
+	}
+	return node;
+}
+
+/**
 Constructor.
 
 Starts us as an empty list.
@@ -408,27 +428,12 @@ template <class R, class N, class K, int n> TreeInRoot<R, N, K, n>::~TreeInRoot(
 /**
 Constructor.
 
-@param root Pointer to list for node to be added to (if not NULL).
 */
-template <class R, class N, class K, int n> TreeInNode<R, N, K, n>::TreeInNode(R* root) :
+template <class R, class N, class K, int n> TreeInNode<R, N, K, n>::TreeInNode() :
 root_(0),
 parent_(0),
 left_(0),
 right_(0) {
-	if (root) addTo(root);
-}
-
-/**
-Constructor.
-
-@param root list we are to be added to.
-*/
-template <class R, class N, class K, int n> TreeInNode<R, N, K, n>::TreeInNode(R& root) :
-root_(0),
-parent_(0),
-left_(0),
-right_(0) {
-	addTo(root);
 }
 
 /**

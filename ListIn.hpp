@@ -3,6 +3,7 @@
 
 /**
 @file ListIn.hpp
+@brief Intrusive Singly Linked List, Implementation.
 
 This file defines a pair of templates (ListInRoot and ListInNode) that
 implement an intrusive singly linked list.

@@ -3,6 +3,7 @@
 
 /**
  @file DListIn.hpp
+ @brief Intrusive Double Linked List, Implementation.
 
  This file defines the implementation for a pair of templates (DListInRoot and DListInNode) that
  implement an intrusive double linked list.
@@ -49,7 +50,7 @@ classes deriving from multiple versions of DListInRoot/ListInNode
 Remove node from whatever list it is on, if it is on a list.
 */
 
-template <class R, class N, int n = 0> inline void DListInNode<R, N, n>::remove() {
+template <class R, class N, int n> inline void DListInNode<R, N, n>::remove() {
 	if (root_) {
 		if (next_) { // if someone after us, update their back pointer
 			static_cast<Node*>(next_)->prev_ = prev_;

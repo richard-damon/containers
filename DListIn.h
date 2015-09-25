@@ -3,6 +3,7 @@
 
 /**
  @file DListIn.h
+ @brief Intrusive Double Linked List.
 
  This file defines a pair of templates (DListInRoot and DListInNode) that
  implement an intrusive double linked list.

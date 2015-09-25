@@ -1,5 +1,7 @@
 /**
 @file Containers.hpp
+@brief Intrusive Container Documentation.
+
 A File with some general documentation information for the various @ref IntrusiveContainers "container classes", no code here. 
 
 @copyright  (c) 2014 Richard Damon
