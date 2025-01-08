@@ -1,14 +1,14 @@
-#ifndef TreeIn_H
-#define TreeIn_H
+#ifndef BalTreeIn_H
+#define BalTreeIn_H
 
 /**
-@file TreeIn.h
-@brief Intrusive Binary Tree (unbalanced).
+@file BalTreeIn.h
+@brief Intrusive Binary Tree (balenced).
 
-This file defines a pair of templates (TreeInRoot and TreeInNode) that
+This file defines a pair of templates (BalTreeInRoot and BalTreeInNode) that
 implement an intrusive binary tree.
 
-@copyright (c) 2014-2024 Richard Damon
+@copyright (c) 2022-2024 Richard Damon
 @parblock
 MIT License:
 
@@ -33,11 +33,11 @@ THE SOFTWARE.
 
 @par Overview
 @parblock
-TreeInRoot and TreeInNode provide a simple API to allow classes to provide a
+BalTreeInRoot and BalTreeInNode provide a simple API to allow classes to provide a
 basic Tree <-> Node relationship (1 Tree Root holding many Nodes) as a Binary Tree.
 
-Note that this class makes no attempt to "balance" the tree, but is designed that it can be derived
-from by a class to implement any needed balancing.
+Note that this class makes no attempt to "balence" the tree, but is designed that it can be derived
+from by a class to implement any needed balencing, but does supply the rotations to do that balencing.
 
 To create this relationship, the class to act as the tree root derives from the template TreeInRoot,
 and the class to act as the Node from TreeInNode, both with a first parameter of the class name
@@ -75,16 +75,18 @@ node: will have type N*, to be used when walking the list.
 
 @invariant
 @parblock
+From TreeIn.h:
+
 Given:
 + R& root
 + N& node
 
-TreeInRoot
+TreeInRoot:
 + if root.m_base != nullptr:
   + root.m_base-> m_root == &root
   + root.m_base-> m_parent == nullptr
 
-TreeInNode
+TreeInNode:
 + if node.m_root == NULL:  // Free Node
   + node.m_parent == NULL
   + node.m_left == NULL
@@ -108,15 +110,13 @@ TreeInNode
 @ingroup IntrusiveContainers
 */
 
-#include "Container.h"
+#include <Containers/TreeIn.H>
 
-template <class R, class N, class K, ContainerThreadSafety s=ContainerNoSafety, int n = 0> class TreeInNode;
-template <class R, class N, class K, ContainerThreadSafety s=ContainerNoSafety, int n = 0> class TreeInRoot;
-// Forward declared so we can make friend.
-template <class R, class N, class K, ContainerThreadSafety s, int n = 0> class BalTreeInNode;
+template <class R, class N, class K, ContainerThreadSafety s=ContainerNoSafety, int n> class BalTreeInNode;
+template <class R, class N, class K, ContainerThreadSafety s=ContainerNoSafety, int n = 0> class BalTreeInRoot;
 
 /**
-@class TreeInRoot
+@class BalTreeInRoot
 
 Intrusive Binary Tree, Root.
 
@@ -126,79 +126,63 @@ Intrusive Binary Tree, Root.
 @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
 @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
 
+
 @invariant
 @parblock
-+ if m_base != nullptr:
-  + m_base->m_root == this.
-  + m_base->m_parent == nullptr
+ From TreeInRoot:
+ + if m_base not nullptr:
+   + m_base->m_root == this.
+   + m_base->m_parent == nullptr
 @endparblock
 
-@see TreeInNode
+@see BalTreeInNode
 @ingroup IntrusiveContainers
 
-@dotfile TreeIn_Structure.dot "Tree Structure"
-Summary:
-+ Root:
-  + Base pointer to the Base node of the Tree
-+ Node
-  + (Red) Nodes have a Root pointer to the Root structure for the tree
-  + (Blue) Parent pointer to the Node leading to the base of the Tree. 
-    + The node will be on the Left or Right of that Parent. 
-	+ The Base node will have a null parent.
-  + Left pointer to the subtree of Nodes that are less than this node
-  + Right pointer to the subtree of Nodes that are greater than this node  
-
-
+Note, because base class is a template, we have many forwarding functions to that
+base to avoid errors and warnings about thing missing.
 */
-template <class R, class N, class K, ContainerThreadSafety s, int n>
-class TreeInRoot : public Container<s> {
-	friend  class TreeInNode<R, N, K, s, n>;
-    friend  class BalTreeInNode<R, N, K, s, n>;     ///< Let Balancer get to us.
-	typedef class TreeInRoot<R, N, K, s,  n> Root;   ///< Type of TreeInRoot
-	typedef class TreeInNode<R, N, K, s, n> Node;   ///< Type of DListIInNode
-protected:
-	TreeInRoot();
-	virtual ~TreeInRoot();
+template <class R, class N, class K, ContainerThreadSafety s, int n> class BalTreeInRoot :
+  public TreeInRoot<R,N,K,s, n> {
 
-	// These two member functions to be provided by the user.
-	/**
-	 * Compare Nodes
-	 * Should return >0 if node2 > node1, and <0 if node2 < node1, 0 if equal
-	 */
-	int compare(N const& node1, N const& node2) const;
-	/**
-	 * Compare Key to node
-	 * Should return >0 if key > node, <0 if key < node, 0 if key == node
-	 */
-	int compareKey(N const& node, K key) const;
+	friend  class BalTreeInNode<R, N, K, s, n>;
+	typedef class TreeInRoot<R, N, K, s, n> Base;
+	typedef class BalTreeInRoot<R, N, K, s, n> Root;   ///< Type of TreeInRoot
+	typedef class BalTreeInNode<R, N, K, s, n> Node;   ///< Type of DListIInNode
 
-	virtual void add(N& node);
-	void add(N* node);
-	void remove(N& node);
-	void remove(N* node);
-	N* find(K key) const;
-	N* findPlus(K key) const;
-	N* findMinus(K key) const;
+public:
+	BalTreeInRoot();
+	virtual ~BalTreeInRoot();
 
-	N* base() const { return m_base; }
-	N* first() const;
-	N* last() const;
+	int compare(N const& node1, N const& node2) const {
+	    return Base::compare(node1, node2);
+	}
+	int compareKey(N const& node, K key) const {
+	    return Base::compareKey(node, key);
+	}
 
-	bool check() const override;
+//	virtual void add(N& node);
+//	void add(N* node);
+//	void remove(N& node);
+//	void remove(N* node);
+//	N* find(K key) const;
 
-		// Critical Sections used to Update the Container
+	        N*      base() const    { return Base::base(); }
+	        N*      first() const   { return Base::first(); }
+	        N*      last() const    { return Base::last(); }
+
+    bool    check() const override;
+
+	// Critical Sections used to Update the Container
     unsigned writeLock(bool upgrade) const						{ return Container<s>::writeLock(upgrade); }
     void writeUnlock(unsigned save) const						{ 		 Container<s>::writeUnlock(save); }
     // Critical Section used to Read/Search the Container
     unsigned readLock(bool upgrade) const 						{ return Container<s>::readLock(upgrade); }
     void readUnlock(unsigned save) const 						{ 		 Container<s>::readUnlock(save);}
-
-private:
-	N* m_base;                            ///< Pointer to root node on tree.
 };
 
 /**
-@class TreeInNode
+@class BalTreeInNode
+
 Intrusive Binary Tree, Node.
 
 @tparam R The class that will be the owner of the List. Must derive from TreeInRoot<R, N, K, n>
@@ -209,7 +193,8 @@ Intrusive Binary Tree, Node.
 
 @invariant
 @parblock
-+ if m_root == NULL:  // Free Node
+From TreeInNode:
+ + if m_root == NULL:  // Free Node
   + m_parent == NULL
   + m_left == NULL
   + m_right == NULL
@@ -229,78 +214,36 @@ Intrusive Binary Tree, Node.
   + m_root->compare(*m_right, *this) <= 0
 @endparblock
 
-@see TreeInRoot
+@see BalTreeInRoot
 @ingroup IntrusiveContainers
 
-@dotfile TreeIn_Structure.dot "Tree Structure"
-
-Summary:
-+ Root:
-  + Base pointer to the Base node of the Tree
-+ Node
-  + (Red) Nodes have a Root pointer to the Root structure for the tree
-  + (Blue) Parent pointer to the Node leading to the base of the Tree. 
-    + The node will be on the Left or Right of that Parent. 
-	+ The Base node will have a null parent.
-  + Left pointer to the subtree of Nodes that are less than this node
-  + Right pointer to the subtree of Nodes that are greater than this node  
-
-
 */
-/*
-@verbatim
-                                        +------+
-Root:                         /-------->| Root |<----------\
-B: Base                       |         +------+           |
-                              |         B |  ^             |
-                              |           |  |    x        |
-			                  |	          v  | R  | P      |
-			                  |     +--------------+       |
-Node:                         |     |  Node:Base   |       |
-R: Root                       |     +--------------+       |
-P: Parent                     |      L | ^   R | ^         |
-L: Left                       |        | |     | |         |
-R: Right                      |        / /     \ \         |
-                              |       / /       \ \        |
-			                  |      / /         \ \       |
-			                  |     / /           \ \      |
-			                  |    | |            | |      |  
-                            R |    v | P          v | P    | R     
-                          +--------------+     +--------------+
-			              |  Node:Left   |     |  Node:Right  |
-                          +--------------+     +--------------+
-@endverbatim
-*/
-
-template <class R, class N, class K, ContainerThreadSafety s, int n>
-class TreeInNode : public ContainerNode<s> {
-	friend  class TreeInRoot<R, N, K, s, n>;
-	friend  class BalTreeInNode<R, N, K, s, n>;     ///< Let Balancer get to us.
-	typedef class TreeInRoot<R, N, K, s, n> Root;   ///< Type of TreeInRoot
-	typedef class TreeInNode<R, N, K, s, n> Node;   ///< Type of DListIInNode
+template <class R, class N, class K, ContainerThreadSafety s, int n> class BalTreeInNode :
+  public TreeInNode<R, N, K, s, n> {
+	friend  class BalTreeInRoot<R, N, K, s, n>;
+	typedef class TreeInNode<R, N, K, s, n> Base;
+	typedef class BalTreeInRoot<R, N, K, s, n> Root;   ///< Type of Root
+	typedef class BalTreeInNode<R, N, K, s, n> Node;   ///< Type of Node
 protected:
-	TreeInNode(); // No default add as that needs our Parent already constructed
-	virtual ~TreeInNode();
+	BalTreeInNode(); // No default add as that needs our Parent already constructed
+	virtual ~BalTreeInNode();
 
-	        void    addTo(R& root);
-	        void    addTo(R* root);
-	virtual void    remove();           // Virtual so "fancier" trees can rebalence
+//	void addTo(R& root);
+//	void addTo(R* root);
+//	virtual void remove();           // Virtual so "fancier" trees can rebalence
 
-	        R*      root() const { return m_root; }    ///< Return pointer to tree we are on.
-	        N*      parent() const { return m_parent; }
-	        N*      left() const { return m_left; }
-	        N*      right() const { return m_right; }
-	        N*      next() const;
-	        N*      prev() const;
+            R* root() const     { return Base::root(); }
+            N* parent() const   { return Base::parent(); }
+            N* left() const     { return Base::left();  }
+            N* right() const    { return Base::right(); }
+            N* next() const     { return Base::next(); }
+            N* prev() const     { return Base::prev(); }
 
-			void	setRoot(R* root) { m_root = root; ContainerNode<s>::setRoot(static_cast<Root*>(root)); }
+            N*  rotateRight();
+            N*  rotateLeft();
 
-			bool    check() const override;
-	        /**
-	         * Hook to allow Balanced trees to rebalance from current node, just changed
-	         */
-	virtual void    rebalance() { return; }
-	        void    resort();
+	bool    check() const override;
+	void    rebalance() override = 0;
 
 	// Critical Sections used to Update the Container
     unsigned writeLock(bool upgrade) const						{ return ContainerNode<s>::writeLock(upgrade); }
@@ -308,12 +251,6 @@ protected:
     // Critical Section used to Read/Search the Container
     unsigned readLock(bool upgrade) const 						{ return ContainerNode<s>::readLock(upgrade); }
     void readUnlock(unsigned save) const 						{ 		 ContainerNode<s>::readUnlock(save);}
-
-private:
-	R*    m_root;     	///< Pointer to tree we are on.
-	N*    m_parent;   	///< Pointer to parent node on tree.
-	N*    m_left;      	///< Pointer to left (lesser) child node on tree.
-	N*    m_right;		///< Pointer to right (greater) child node on tree.
 };
 
 #endif

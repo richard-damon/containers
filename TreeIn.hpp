@@ -8,7 +8,7 @@
 This file defines a pair of templates (TreeInRoot and TreeInNode) that
 implement an intrusive binary tree.
 
-@copyright (c) 2014 Richard Damon
+@copyright (c) 2014-2024 Richard Damon
 @parblock
 MIT License:
 
@@ -37,13 +37,29 @@ THE SOFTWARE.
 
 #include "TreeIn.h"
 
+#define TREEIN_CHECK_ASSERT 0x02    ///< @todo Implement conditional assertions
+#define TREEIN_CHECK_AUTO   0x04
 /// Define Non-Zero to perform frequent Invariants Checks
-#define TREEIN_CHECK 1
+#ifndef TREEIN_CHECK
+/**
+ * TreeChecking
+ * 0 = Disable Checking
+ * +2 to check with asserts
+ * +4 to check after operations
+ *
+ */
+#define TREEIN_CHECK 0
+#endif
 
 #if TREEIN_CHECK
 #include "FreeRTOS.h"
-#define assert configASSERT
-#include <iostream>
+
+#if TREEIN_CHECK & TREEIN_CHECK_ASSERT
+#define TREEIN_ASSERT(cond) configASSERT(cond)
+#else
+#define TREEIN_ASSERT(cond) if(!(cond)) { readUnlock(save); return false; }
+#endif
+
 #endif
 
 
@@ -57,198 +73,337 @@ classes deriving from multiple versions of TreeInRoot/ListInNode
 
 #if TREEIN_CHECK
 /**
-*/
-template <class R, class N, class K, int n> inline void TreeInNode<R, N, K, n>::check() const {
+ * Tree Integrity check.
+ * 
+ * Constraints Checked:
+ * + All Node in a tree point to the Root structure for that tree
+ *   + Check that Node with Parent = NULL is pointed to be its Root
+ *   + All other Nodes point to the same Root as their Parent
+ *   + or if not in a tree, have no connections at all
+ * + Linkage forms a tree
+ *   + Check that all nodes are pointed to by the left or right of their parent
+ * + Nodes are sorted Properly
+ *   + Our Left Node is less than us
+ *   + The Largest Node under our Left Node (right most child) is less than us
+ *   + Our Right Node is greater than us
+ *   + The Smallest Node under our Right Node (left most child) is greter than us
+ */
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+inline bool TreeInNode<R, N, K, s, n>::check() const {
 	N const* me = static_cast<N const*>(this);
-	if (root_) {
-		Root* myroot = root_;
-		if (parent_ == 0) {
-			assert(static_cast<Root*>(root_)->base_ == me);
+	unsigned save = readLock(false);
+	if (m_root) {
+		Root* myroot = m_root;
+		if (m_parent == nullptr) {
+			TREEIN_ASSERT(static_cast<Root*>(m_root)->m_base == me);
 		} else {
-			Node* myparent = static_cast<Node*>(parent_);
-			assert(myparent->left_ == me || myparent->right_ == me);
-			assert(myparent->root_ == root_);
+			Node* myparent = m_parent;
+			TREEIN_ASSERT(myparent->m_left == me || myparent->m_right == me);
+			TREEIN_ASSERT(myparent->m_root == m_root);
 		}
 
-		if (left_) {
-			Node* myleft = static_cast<Node*>(left_);
-			assert(myleft->parent_ == me);
-			assert(myroot->compare(*me, *left_) <= 0);
-			assert(myroot->compare(*left_, *me) >= 0);
+		if (m_left) {
+			Node* myleft = m_left;
+			TREEIN_ASSERT(myleft->m_parent == me);
+			TREEIN_ASSERT(myroot->compare(*me, *m_left) <= 0);
+			TREEIN_ASSERT(myroot->compare(*m_left, *me) >= 0);
+			if(myleft->m_right) {
+				// Travese to find right-most child
+				while(myleft->m_right) {
+					myleft = myleft->m_right;
+				}
+				N const* rightmost = static_cast<N const*>(myleft);
+				TREEIN_ASSERT(myroot->compare(*me, *rightmost) <= 0);
+				TREEIN_ASSERT(myroot->compare(*rightmost, *me) >= 0);
+			}
 		}
 
-		if (right_) {
-			Node* myright = static_cast<Node*>(right_);
-			assert(myright->parent_ == me);
-			assert(myroot->compare(*me, *right_) >= 0);
-			assert(myroot->compare(*right_, *me) <= 0);
+		if (m_right) {
+			Node* myright = m_right;
+			TREEIN_ASSERT(myright->m_parent == me);
+			TREEIN_ASSERT(myroot->compare(*me, *m_right) >= 0);
+			TREEIN_ASSERT(myroot->compare(*m_right, *me) <= 0);
+			if(myright->m_left) {
+				// Travers to find left-most child
+				while(myright->m_left) {
+					myright = myright->m_left;
+				}
+				N const* leftmost = static_cast<N const*>(myright);
+				TREEIN_ASSERT(myroot->compare(*me, *leftmost) >= 0);
+				TREEIN_ASSERT(myroot->compare(*leftmost, *me) <= 0);
+			}
 		}
 	} else {
-		assert(parent_ == 0);
-		assert(left_ == 0);
-		assert(right_ == 0);
+	    // root == 0 means we must be disconnected.
+		TREEIN_ASSERT(m_parent == nullptr);
+		TREEIN_ASSERT(m_left == nullptr);
+		TREEIN_ASSERT(m_right == nullptr);
 	}
+	readUnlock(save);
+	return true;
 }
 
-template <class R, class N, class K, int n> inline void TreeInRoot<R, N, K, n>::check() const {
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+inline bool TreeInRoot<R, N, K, s, n>::check() const {
 	R const* me = static_cast<R const*>(this);
-	if (base_) {
-		Node* node = static_cast<Node*>(base_);
-		assert(node->root_ == me);
-		assert(node->parent_ == 0);
-		node->check();
+	bool  flag = true;
+	unsigned save = readLock(false);
+	if (m_base) {
+		Node const* node = m_base;
+		TREEIN_ASSERT(node->m_root == me);
+		TREEIN_ASSERT(node->m_parent == nullptr);
+		while(node) {
+	        flag = node->check();
+	        if(!flag) {
+	            readUnlock(save);
+	            return 0;
+	        } else if(node->m_left != nullptr) {
+		        node = node->m_left;
+		    } else if(node->m_right != nullptr) {
+		        node = node->m_right;
+		    } else {
+		        while(node->m_parent) {
+	                Node* parent = node->m_parent;
+	                if(parent->m_left == node && parent->m_right){
+	                    node = parent->m_right;
+	                    break;
+	                }
+	                node = parent;
+		        }
+		    }
+		}
 	}
+	readUnlock(save);
+	return flag;
+}
+#else
+// Simple versions that bypass checking.
+
+template <class R, class N, class K, ContainerThreadSafety s, int n> inline bool TreeInNode<R, N, K, s, n>::check() const {
+    return true;
+}
+template <class R, class N, class K, ContainerThreadSafety s, int n> inline bool TreeInRoot<R, N, K, s, n>::check() const {
+    return true;
 }
 #endif
 
 /**
 Return node next in sort sequence.
 */
-template <class R, class N, class K, int n> inline N* TreeInNode<R, N, K, n>::next() const {
-	N const* node;
-	Node const* mynode;
-	if (right_) {
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+inline N* TreeInNode<R, N, K, s, n>::next() const {
+	N* node;
+	Node* mynode;
+	unsigned save = readLock(false);
+	if (m_right) {
 		// Node has a right child, next will be leftmost child of right child
-		node = right_;
+		node = m_right;
 		mynode = node;
-		while (mynode->left_) {
-			node = mynode->left_;
+		while (mynode->m_left) {
+			node = mynode->m_left;
 			mynode = node;
 		}
-		return const_cast<N*>(node);
+		readUnlock(save);
+		return node;
 	} 
 	// Node does not have a right child, accend parents chain until we reach a parent we are left linked to.
-	mynode = this;
-	node = static_cast<N const*>(mynode);
-	while (mynode->parent_) {
-		N* parent = mynode->parent_;
-		mynode = parent;
-		if (mynode->left_ == node) {
-			return parent;
+	mynode = const_cast<Node *>(this);
+	node = static_cast<N*>(mynode);
+	while (mynode->m_parent) {
+		N* myparent = mynode->m_parent;
+		mynode = myparent;
+		if (mynode->m_left == node) {
+		    readUnlock(save);
+			return myparent;
 		}
-		node = parent;
+		node = myparent;
 	}
-	return 0;
+	readUnlock(save);
+	return nullptr;
 }
 
 /**
 Return previous node in sort sequence.
 */
-template <class R, class N, class K, int n> inline N* TreeInNode<R, N, K, n>::prev() const {
-	N const* node;
-	Node const* mynode;
-	if (left_) {
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+inline N* TreeInNode<R, N, K, s, n>::prev() const {
+	N* node;
+	Node* mynode;
+	unsigned save = readLock(false);
+	if (m_left) {
 		// Node has a left child, prev will be rightmost child of left child
-		node = left_;
+		node = m_left;
 		mynode = node;
-		while (mynode->right_) {
-			node = mynode->right_;
+		while (mynode->m_right) {
+			node = mynode->m_right;
 			mynode = node;
 		}
-		return const_cast<N*>(node);
+		readUnlock(save);
+		return node;
 	}
-	// Node does not have a right child, accend parents chain until we reach a parent we are left linked to.
-	mynode = this;
-	node = static_cast<N const*>(mynode);
-	while (mynode->parent_) {
-		N* parent = mynode->parent_;
-		mynode = parent;
-		if (mynode->right_ == node) {
-			return parent;
+	// Node does not have a right child, ascend parents chain until we reach a parent we are left linked to.
+	mynode = const_cast<Node*>(this);
+	node = static_cast<N*>(mynode);
+	while (mynode->m_parent) {
+		N* myparent = mynode->m_parent;
+		mynode = myparent;
+		if (mynode->m_right == node) {
+		    readUnlock(save);
+			return myparent;
 		}
-		node = parent;
+		node = myparent;
 	}
-	return 0;
+	readUnlock(save);
+	return nullptr;
 }
 
-template <class R, class N, class K, int n> inline N* TreeInRoot<R, N, K, n>::first() const {
-	if (base_ == 0) return 0;
-	N* node = base_;
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+inline N* TreeInRoot<R, N, K, s, n>::first() const {
+    unsigned save = readLock(false);
+	if (m_base == nullptr) return nullptr;
+	N* node = m_base;
 	Node* mynode = node;
-	while (mynode->left_) {
-		node = mynode->left_;
+	while (mynode->m_left) {
+		node = mynode->m_left;
 		mynode = node;
 	}
+	readUnlock(save);
 	return node;
 }
 
 
-template <class R, class N, class K, int n> inline N* TreeInRoot<R, N, K, n>::last() const {
-	if (base_ == 0) return 0;
-	N* node = base_;
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+inline N* TreeInRoot<R, N, K, s, n>::last() const {
+	if (m_base == 0) return 0;
+	unsigned save = readLock();
+	N* node = m_base;
 	Node* mynode = node;
-	while (mynode->right_) {
-		node = mynode->right_;
+	while (mynode->m_right) {
+		node = mynode->m_right;
 		mynode = node;
 	}
+	readUnlock(save);
 	return node;
 }
 
 /**
-Remove node from whatever tree it is on, if it is on a tree.
-*/
+ * Remove node from whatever tree it is on, if it is on a tree.
+ * @verbatim
 
-template <class R, class N, class K, int n> inline void TreeInNode<R, N, K, n>::remove() {
- 	if (root_) {
-		static_cast<Root*>(root_)->check();
-		Node* parent = static_cast<Node*>(parent_);
-		N* newLink = 0;
-		if (left_ == 0) {
-			if (right_ == 0) {
+   Delete Node N
+
+   Simple Cases, Not both childern (x is empty link)
+
+   P     P    P    P    P    P
+   | =>  x    | => |    | => |
+   N          N    L    N    R
+  x x        / x         \
+            L             R
+
+   Rebalance at P
+
+More Complicated, as we have both childern
+
+   More Complicated                    Special Case
+
+   P                  P                P        P
+   |      =>          |                |   =>   |
+   N                  D                N        L
+  / \                / \              / \      / \
+ L   R              L   R            L   R    A   R
+  \                  \              / x
+   A                  A            A
+    \                  \
+     B                  B
+      \                  \
+       D                  C
+      / x
+     C
+
+ Rebalance at B.  D might be L if it had no right child in which case rebalance at L
+
+ L < A < B < C < D < N < R
+
+ Link to P either a left or right, or Root if P is NULL.
+ x indicates NULL links
+
+   @endverbatim
+ *
+ */
+
+template <class R, class N, class K,  ContainerThreadSafety s,int n>
+inline void TreeInNode<R, N, K, s, n>::remove() {
+ 	if (m_root) {
+		Root* root = m_root;
+#if TREEIN_CHECK & TREEIN_CHECK_AUTO
+ 		root->check();
+#endif
+   		unsigned save = writeLock(false);
+
+		Node* myparent = m_parent;
+		N* newLink = nullptr;
+		if (m_left == nullptr) {
+			if (m_right == nullptr) {
 				// We are child node, we can just unlink
 			} else {
 				// Only have right, link our parent to right
-				newLink = right_;
+				newLink = m_right;
 			}
 		} else {
-			if (right_ == 0) {
+			if (m_right == nullptr) {
 				// Only have left, link our parent to left
-				newLink = left_;
+				newLink = m_left;
 			} else {
 				// Have both left and right children, rotate our "previous" into our spot.
 				newLink = prev();
-				Node* nl = static_cast<Node*>(newLink);
+				Node* nl = newLink;
 				// Our previous node should have its right linked to our right.
 				// Our previous node's right will be null since it is below us
-				nl->right_ = right_;
-				static_cast<Node*>(right_)->parent_ = newLink;
+				nl->m_right = m_right;
+				static_cast<Node*>(m_right)->m_parent = newLink;
 
-				if (newLink != left_){
+				if (newLink != m_left){
 					// if our previous is not our direct left, unlink it from its parent
 					// linking in its stead it left.
 
-					static_cast<Node*>(nl->parent_)->right_ = nl->left_;
-					if (nl->left_){
-						static_cast<Node*>(nl->left_)->parent_ = nl->parent_;
+					static_cast<Node*>(nl->m_parent)->m_right = nl->m_left;
+					if (nl->m_left){
+						static_cast<Node*>(nl->m_left)->m_parent = nl->m_parent;
 					}
 					// Link our left into our previous left now that it is open.
 
-					nl->left_ = left_;
-					static_cast<Node*>(left_)->parent_ = newLink;
+					nl->m_left = m_left;
+					static_cast<Node*>(m_left)->m_parent = newLink;
 
 				}
 			}
 		}
 		// link our replacement to our parent.
 		if (newLink) {
-			static_cast<Node*>(newLink)->parent_ = parent_;
+			static_cast<Node*>(newLink)->m_parent = m_parent;
 		}
 		// update our parent (or root) to point to our replacement (newLink)
-		if (parent) {
-			if (parent->left_ == static_cast<N*>(this)) {
-				parent->left_ = newLink;
-			} else /*if (parent->right_ == static_cast<N*>(this))*/ {
-				parent->right_ = newLink;
+		if (myparent) {
+			if (myparent->m_left == static_cast<N*>(this)) {
+				myparent->m_left = newLink;
+			} else /*if (parent->m_right == static_cast<N*>(this))*/ {
+				myparent->m_right = newLink;
 			}
 		} else {
-			static_cast<Root*>(root_)->base_ = newLink;
+			static_cast<Root*>(m_root)->m_base = newLink;
 		}
-		static_cast<Root*>(root_)->check();
-		root_ = 0;
-		parent_ = 0;
-		left_ = 0;
-		right_ = 0;
+#if TREEIN_CHECK & TREEIN_CHECK_AUTO
+		static_cast<Root*>(m_root)->check();
+#endif
+		setRoot(nullptr);
+		m_parent = nullptr;
+		m_left = nullptr;
+		m_right = nullptr;
+		root->writeUnlock(save);
+		rebalance();    // rebalence to update to being a "free" node.
+#if TREEIN_CHECK & TREEIN_CHECK_AUTO
 		check();
+#endif
 	}
 }
 
@@ -258,12 +413,15 @@ Remove Node from List
 @param node node to be removed.
 If node is not on this list, nothing will be done.
 */
-template <class R, class N, class K, int n> inline void TreeInRoot<R, N, K, n>::remove(N& node) {
-	Node& mynode = static_cast<Node&>(node);
-	if (mynode.root_ == this) {
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+inline void TreeInRoot<R, N, K, s, n>::remove(N& node) {
+	Node& mynode = node;
+	unsigned save = writeLock(false);
+	if (mynode.m_root == this) {
 		// Only remove if node is on this list.
 		mynode.remove();
 	}
+	writeUnlock(save);
 }
 
 
@@ -274,91 +432,100 @@ Remove Node from List
 If node is null, operation will be ignored.
 If node is not on this list, nothing will be done.
 */
-template <class R, class N, class K, int n_> inline void TreeInRoot<R, N, K, n_>::remove(N* node) {
-	if (node != 0) remove(*node);
+template <class R, class N, class K, ContainerThreadSafety s, int n_>
+inline void TreeInRoot<R, N, K, s, n_>::remove(N* node) {
+	if (node != nullptr) remove(*node);
 }
 
 /**
-Add node to our list, at "natural" point.
-Note that this is the front for singly linked lists and the end for doubly linked list.
+ * Add node to our tree, note trees are sorted by the compare member function which needs to be implemented by the user.
+ *
+ * @param node The node to add to the list
+ * If node is currently on a different list it is removed before being added to the list.
+ *
+ * If node is on the requested list, do nothing. If trying to change value and position, use resort
+ */
 
-@param node The node to add to the list
-If node is currently on a different list it is removed before being added to the list
-*/
-
-template<class R, class N, class K, int n> inline void TreeInRoot<R, N, K, n>::add(N& node) {
+template<class R, class N, class K,  ContainerThreadSafety s,int n>
+inline void TreeInRoot<R, N, K, s, n>::add(N& node) {
 	Node& mynode = node;
-	if (mynode.root_ == this) return; // if already here, do nothing.
-	if (mynode.root_ != 0) mynode.remove(); // if on a different tree, remove.
-	if (base_) {
-		N* nodebase = base_;
+	if (mynode.m_root == this) return; // if already here, do nothing.
+	if (mynode.m_root != nullptr) mynode.remove(); // if on a different tree, remove.
+    unsigned save = writeLock(false);
+	if (m_base) {
+		N* nodebase = m_base;
 		while (1) {
 			Node* mynodebase = nodebase;
 			int cmp = compare(*nodebase, node);
 			if (cmp < 0) {
-				if (mynodebase->left_) {
-					nodebase = mynodebase->left_;
+				if (mynodebase->m_left) {
+					nodebase = mynodebase->m_left;
 				} else {
-					mynodebase->left_ = &node;
-					mynode.parent_ = nodebase;
+					mynodebase->m_left = &node;
+					mynode.m_parent = nodebase;
 					break;
 				}
 			} else {
-				if (mynodebase->right_) {
-					nodebase = mynodebase->right_;
+				if (mynodebase->m_right) {
+					nodebase = mynodebase->m_right;
 				} else {
-					mynodebase->right_ = &node;
-					mynode.parent_ = nodebase;
+					mynodebase->m_right = &node;
+					mynode.m_parent = nodebase;
 					break;
 				}
 			}
 		}
 	} else {
 		// Tree Empty, so simple to add
-		base_ = &node;
-		Node& mynode = node;
-		mynode.parent_ = 0;
+		m_base = &node;
+		mynode.m_parent = nullptr;
 	}
-	mynode.root_ = static_cast<R*>(this);
-	mynode.left_ = 0;
-	mynode.right_ = 0;
+	mynode.setRoot(static_cast<R*>(this));
+	mynode.m_left = nullptr;
+	mynode.m_right = nullptr;
+	writeUnlock(save);
+	mynode.rebalance();
+#if TREEIN_CHECK & TREEIN_CHECK_AUTO
 	check();
+#endif
 }
 
 /**
-Add node to our list, at "natural" point.
-Note that this is the front for singly linked lists and the end for doubly linked lists.
+Add node to our tree.
 
 @param node The node to add to the list
-If node is nulR, Nothing is done.
+If node is null, Nothing is done.
 If node is currently on a list (even us) it is removed before being added to the list
 */
-template<class R, class N, class K, int n_> inline void TreeInRoot<R, N, K, n_>::add(N* node) {
-	if (node != 0) add(*node);
+template<class R, class N, class K, ContainerThreadSafety s, int n_>
+inline void TreeInRoot<R, N, K, s, n_>::add(N* node) {
+	if (node != nullptr) add(*node);
 }
 
 /**
-Add ourself to a list at "natural" postion.
-Note that this is the front for singly linked lists, and the end for doubly linked lists.
+Add ourself to a tree.
 
-@param root List to add to.
+@param myroot Tree to add to.
 */
 
 
-template<class R, class N, class K, int n> void TreeInNode<R, N, K, n>::addTo(R& root) {
-	static_cast<Root&>(root).add(*static_cast<N*>(this));
+template<class R, class N, class K, ContainerThreadSafety s, int n>
+void TreeInNode<R, N, K, s, n>::addTo(R& myroot) {
+	// Defer the add to the Tree which knows the sort
+	static_cast<Root&>(myroot).add(*static_cast<N*>(this));
 }
 
 
 /**
 Add ourself to a tree
 
-@param root Tree to add to.
+@param myroot Tree to add to.
 */
 
-template<class R, class N, class K, int n> void TreeInNode<R, N, K, n>::addTo(R* root) {
-	if (root) {
-		addTo(*root);
+template<class R, class N, class K, ContainerThreadSafety s, int n>
+void TreeInNode<R, N, K, s, n>::addTo(R* myroot) {
+	if (myroot) {
+		addTo(*myroot);
 	} else {
 		remove();
 	}
@@ -368,27 +535,83 @@ template<class R, class N, class K, int n> void TreeInNode<R, N, K, n>::addTo(R*
  * find a node
  */
 
-template<class R, class N, class K, int n> N* TreeInRoot<R, N, K, n>::find(K key) const {
+template<class R, class N, class K, ContainerThreadSafety s, int n>
+N* TreeInRoot<R, N, K, s, n>::find(K key) const {
 	N* node = base();
+	unsigned save = readLock(false);
 	while(node) {
 		int cmp = compareKey(*node, key);
 		if(cmp == 0) break; // Found the node, return it
 		if(cmp < 0) {
-			node = static_cast<Node*>(node)->left_;
+			node = static_cast<Node*>(node)->m_left;
 		} else {
-			node = static_cast<Node*>(node)->right_;
+			node = static_cast<Node*>(node)->m_right;
 		}
 	}
+	readUnlock(save);
 	return node;
 }
+/**
+ * find a node, or the node that would be just lower than this node
+ */
+
+template<class R, class N, class K, ContainerThreadSafety s, int n>
+N* TreeInRoot<R, N, K, s, n>::findMinus(K key) const {
+	N* node = base();
+	N* cursor = node;
+	unsigned save = readLock(false);
+	while(cursor) {
+		int cmp = compareKey(*cursor, key);
+		if(cmp == 0) {
+			node = cursor;
+			break; // Found the node, return it
+		}
+		if(cmp < 0) {
+			node = cursor;
+			cursor = static_cast<Node*>(cursor)->m_left;
+		} else {
+			cursor = static_cast<Node*>(cursor)->m_right;
+		}
+	}
+	readUnlock(save);
+	return node;
+}
+
+/**
+ * find a node, r the node that would be just above this node.
+ */
+
+template<class R, class N, class K, ContainerThreadSafety s, int n>
+N* TreeInRoot<R, N, K, s, n>::findPlus(K key) const {
+	N* node = base();
+	N* cursor = node;
+	unsigned save = readLock(false);
+	while(cursor) {
+		int cmp = compareKey(*cursor, key);
+		if(cmp == 0) {
+			node = cursor;
+			break; // Found the node, return it
+		}
+		if(cmp < 0) {
+			cursor = static_cast<Node*>(cursor)->m_left;
+		} else {
+			node = cursor;
+			cursor = static_cast<Node*>(cursor)->m_right;
+		}
+	}
+	readUnlock(save);
+	return node;
+}
+
 
 /**
 Constructor.
 
 Starts us as an empty list.
 */
-template <class R, class N, class K, int n> TreeInRoot<R, N, K, n>::TreeInRoot() :
-base_(0)
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+TreeInRoot<R, N, K, s, n>::TreeInRoot() :
+m_base(nullptr)
 {}
 
 /**
@@ -399,41 +622,44 @@ Removes all nodes attached to us.
 Doesn't actually call remove on every node to avoid possible unneeded rebalencing, just
 manually unlinks all nodes.
 */
-template <class R, class N, class K, int n> TreeInRoot<R, N, K, n>::~TreeInRoot() {
-	Node* node = base_;
+template <class R, class N, class K, ContainerThreadSafety s, int n>
+TreeInRoot<R, N, K, s, n>::~TreeInRoot() {
+	Node* node = m_base;
 	while (node) {
-		if (node->left_) {
-			node = node->left_;
-		} else if (node->right_) {
-			node = node->right_;
+		if (node->m_left) {
+			node = node->m_left;
+		} else if (node->m_right) {
+			node = node->m_right;
 		} else {
-			Node* parent = node->parent_;
-			node->left_ = 0;
-			node->right_ = 0;
-			node->parent_ = 0;
+			Node* parent = node->m_parent;
+			node->m_left = nullptr;
+			node->m_right = nullptr;
+			node->m_parent = nullptr;
 			if (parent) {
-				if (parent->left_ == node) {
-					parent->left_ = 0;
+				if (parent->m_left == node) {
+					parent->m_left = nullptr;
 				}
-				if (parent->right_ == node) {
-					parent->right_ = 0;
+				if (parent->m_right == node) {
+					parent->m_right = nullptr;
 				}
 			}
 			node = parent;
 		}
 	}
-	base_ = 0;
+	m_base = nullptr;
 }
 
 /**
 Constructor.
 
 */
-template <class R, class N, class K, int n> TreeInNode<R, N, K, n>::TreeInNode() :
-root_(0),
-parent_(0),
-left_(0),
-right_(0) {
+template <class R, class N, class K,  ContainerThreadSafety s,int n>
+TreeInNode<R, N, K, s, n>::TreeInNode() :
+ContainerNode<s>(nullptr),
+m_root(nullptr),
+m_parent(nullptr),
+m_left(nullptr),
+m_right(nullptr) {
 }
 
 /**
@@ -441,7 +667,8 @@ Destructor.
 
 Remove us from we are on, if any.
 */
-template <class R, class N, class K, int n> TreeInNode<R, N, K, n>::~TreeInNode() {
+template <class R, class N, class K, ContainerThreadSafety s,int n>
+TreeInNode<R, N, K, s, n>::~TreeInNode() {
 	remove();
 }
 #endif

@@ -8,7 +8,7 @@
  This file defines a pair of templates (DListInRoot and DListInNode) that
  implement an intrusive double linked list.
 
-@copyright (c) 2014 Richard Damon
+@copyright (c) 2014-2024 Richard Damon
 @parblock
 MIT License:
 
@@ -39,12 +39,12 @@ basic List <-> Node relationship (1 List holding many Nodes) with a doubly linke
 
 To create this relationship, the class to act as the list derives from the template DListInRoot,
 and the class to act as the Node from DListInNode, both with a first parameter of the class name
-of the List clase, and a second parameter of the Node clasee. There is an optional integral 3rd parameter
+of the List class, and a second parameter of the Node class. There is an optional integral 3rd parameter
 to allow the classes to inherent from these multiple times if you need to represent multiple simultaneous
-relationships. This inheretance should be public, or you need to add the DListInRoot and DListInNode templates as
+relationships. This inheritance should be public, or you need to add the DListInRoot and DListInNode templates as
 friends.
 
-At the point of decleration, both classes need to be declared, so you will typically have a forward of the other
+At the point of declaration, both classes need to be declared, so you will typically have a forward of the other
 class before the definition of the class. At the point of usage of members, generally the full definition of both
 classes is needed to instance the code for the template.
 
@@ -63,30 +63,37 @@ Node: The particular instance of DListInNode<R, N, n> being used
 node: will have type N*, to be used when walking the list.
 @endparblock
 
-@par Invarients
+
+@invariant
 @parblock
-- root->first_ and root->last_ will either both be NULL, or neither will be NULL
+ Given:
+ + R& root
+ + N& node
 
-- if root->first_ != NULL, 
- + root->first_->root_ == root
- + root->last_->root_ == root
- + root->first_->prev_ == NULL
- + root->last_->next_ == NULL
+ DListInRoot:
+ + if root.m_first == nullptr
+   + root.m_last == nullptr
+ + if root.m_first !- nullptr
+   + root,m_last != nullptr
+   + root.m_first->m_root == \&root
+   + root.m_first->m_prev == nullptr
+   + root.m_last->m_root == \&root
+   + root.m_last->m_next == nullptr
 
-- if node->root_ == NULL:
- + node->next_ == NULL
- + node->prev_ == NULL
-
-- if node->next_ != NULL: 
- + node->next_->prev_ == node
- + node->next_->root_ == node->root_
-
- - if node->root_ != NULL AND node->prev_ == NULL:
- + node->root_->first_ == node
-
-- if node->root_ != NULL abd node->next_ == NULL:
- + node->root_->last_ == node
-
+ DListInNode:
+ + if node.m_root == nullptr
+   + node.m_nest == nullptr
+   + node.m_prev == nullptr
+ + if node.m_prev == nullptr
+   + node.m_root->m_first = \&node;
+ + if node.m_prev !- nullptr
+   + node.m_prev->m_root == node.m_root
+   + node.m_orev->m_next == \&node
+ + if node.m_next == nullptr
+   + node.m_root->m_last = \&node
+ + if node.m_next != nullptr
+   + node.m_next->m_root == node.m_root
+   + node.m_next->m_prev == \&node
 @endparblock
 
 @see DListIn.hpp
@@ -94,52 +101,71 @@ node: will have type N*, to be used when walking the list.
 
 @ingroup IntrusiveContainers
 */
-template <class R,class N, int n = 0> class DListInNode;
-template <class R, class N, int n = 0> class DListInRoot;
+#include "Container.h"
+
+template <class R, class N, ContainerThreadSafety s=ContainerNoSafety, int n = 0> class DListInNode;
+template <class R, class N, ContainerThreadSafety s=ContainerNoSafety, int n = 0> class DListInRoot;
 
 /**
 @class DListInRoot
 
 Intrusive Doubly Linked List, List.
 
-@tparam L The class that will be the owner of the List. Must derive from DListInRoot<R, N, n>
+@tparam R The class that will be the owner of the List. Must derive from DListInRoot<R, N, n>
 @tparam N The class that will be the nodes of the List. Must derive from DListInNode<R, N, n>
+@tparam s
 @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+
+@invariant
+@parblock
+ + if m_first == nullptr
+   + m_last == nullptr
+ + if m_first !- nullptr
+   + m_last != nullptr
+   + m_first->m_root == this
+   + m_first->m_prev == nullptr
+   + m_last->m_root == this
+   + m_last->m_next == nullptr
+@endparblock
 
 @see DListInNode
 @ingroup IntrusiveContainers
 
 */
-template <class R, class N, int n> class DListInRoot {
-	friend  class DListInNode<R, N, n>;
-	typedef class DListInRoot<R, N, n> Root;   ///< Type of DListInRoot
-	typedef class DListInNode<R, N, n> Node;   ///< Type of DListIInNode
+template <class R, class N, ContainerThreadSafety s, int n> class DListInRoot :
+    public Container<s>
+{
+	friend  class DListInNode<R, N, s, n>;
+	typedef class DListInRoot<R, N, s, n> Root;   ///< Type of DListInRoot
+	typedef class DListInNode<R, N, s, n> Node;   ///< Type of DListIInNode
 public:
 	DListInRoot();
 	~DListInRoot();
 
-	void add(N& node);
-	void add(N* node);
-	void addFirst(N& node);
-	void addFirst(N* node);
-	void addLast(N& node);
-	void addLast(N* node);
+	void add(N& node, bool upgrade = false);
+	void add(N* node, bool upgrade = false);
+	void addFirst(N& node, bool upgrade = false);
+	void addFirst(N* node, bool upgrade = false);
+	void addLast(N& node, bool upgrade = false);
+	void addLast(N* node, bool upgrade = false);
 	void remove(N& node);
 	void remove(N* node);
 
-	N* first() const {return first_;}
-    N* last() const { return last_; }
+	N* first() const {return m_first;}
+    N* last() const { return m_last; }
+
+    bool check() const override;
+
+	// Critical Sections used to Update the Container
+    unsigned writeLock(bool upgrade) const	                    { return Container<s>::writeLock(upgrade); }
+    void writeUnlock(unsigned save) const						{ 		 Container<s>::writeUnlock(save); }
+    // Critical Section used to Read/Seach the Container
+    unsigned readLock(bool upgrade) const 						{ return Container<s>::readLock(upgrade); }
+    void readUnlock(unsigned save) const 						{ 		 Container<s>::readUnlock(save);}
 
 private:
-#if __cplusplus < 201101L
-	DListInRoot(DListInRoot const&);      ///< We are not copyable.
-	void operator =(DListInRoot const&);  ///< We are not assignable.
-#else
-	DListInRoot(DListInRoot const&) = delete;      ///< We are not copyable.
-	void operator =(DListInRoot const&) = delete;  ///< We are not assignable.
-#endif
-	N* first_;                            ///< Pointer to first node on list.
-    N* last_;                             ///< Pointer to last node on list.
+    N* m_first;                            ///< Pointer to first node on list.
+    N* m_last;                             ///< Pointer to last node on list.
 };
 
 /**
@@ -147,47 +173,70 @@ private:
 
 Intrusive Doubly Linked List, Node.
 
-@tparam L The class that will be the owner of the List. Must derive from DListInRoot<R, N, n>
+@tparam R The class that will be the owner of the List. Must derive from DListInRoot<R, N, n>
 @tparam N The class that will be the nodes of the List. Must derive from DListInNode<R, N, n>
+@tparam s The ContainerThreadSaftey value to define the thread safety model of the Container
 @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+
+@invariant
+@parblock
+ + if m_root == nullptr
+   + m_nest == nullptr
+   + m_prev == nullptr
+ + if m_prev == nullptr
+   + m_root->m_first = this;
+ + if m_prev !- nullptr
+   + m_prev->m_root == m_root
+   + m_orev->m_next == this
+ + if m_next == nullptr
+   + m_root->m_last = this
+ + if m_next != nullptr
+   + m_next->m_root == m_root
+   + m_next->m_prev == this
+@endparblock
 
 @see DListInRoot
 @ingroup IntrusiveContainers
 
 */
-template <class R, class N, int n> class DListInNode {
-	friend  class DListInRoot<R, N, n>;
-	typedef class DListInRoot<R, N, n> Root;   ///< Type of DListInRoot
-	typedef class DListInNode<R, N, n> Node;   ///< Type of DListIInNode
+template <class R, class N, ContainerThreadSafety s, int n> class DListInNode :
+    public ContainerNode<s>
+{
+	friend  class DListInRoot<R, N, s, n>;
+	typedef class DListInRoot<R, N, s, n> Root;   ///< Type of DListInRoot
+	typedef class DListInNode<R, N, s, n> Node;   ///< Type of DListIInNode
 public:
-	DListInNode(R* root=0);
+	DListInNode(R* root=nullptr);
 	DListInNode(R&);
 	~DListInNode();
 
-	void addTo(R& root);
-	void addTo(R* root);
-	void addToFront(R& root);
-	void addToFront(R* root);
-	void addToEnd(R& root);
-	void addToEnd(R* root);
-	void addAfter(N& node);
-	void addAfter(N* node);
+	void addTo(R& root, bool upgrade = false);
+	void addTo(R* root, bool upgrade = false);
+	void addToFront(R& root, bool upgrade = false);
+	void addToFront(R* root, bool upgrade = false);
+	void addToEnd(R& root, bool upgrade = false);
+	void addToEnd(R* root, bool upgrade = false);
+	void addAfter(N& node, bool upgrade = false);
+	void addAfter(N* node, bool upgrade = false);
 	void remove();
 
-	R* root() const { return root_; }    ///< Return pointer to list we are on.
-	N* next() const { return next_; }    ///< Return pointer to next node on list.
-	N* prev() const { return prev_; }    ///< Return pointer to previous node on list.
+	R* 		root() const { return m_root; }    ///< Return pointer to list we are on.
+	N* 		next() const { return m_next; }    ///< Return pointer to next node on list.
+	N* 		prev() const { return m_prev; }    ///< Return pointer to previous node on list.
+
+    bool check() const override;
+
+    void	setRoot(R* root) { m_root = root; ContainerNode<s>::setRoot(static_cast<Root*>(root)); }
+	// Critical Sections used to Update the Container
+    unsigned writeLock(bool upgrade) const						{ return ContainerNode<s>::writeLock(upgrade); }
+    void writeUnlock(unsigned save) const						{ 		 ContainerNode<s>::writeUnlock(save); }
+    // Critical Section used to Read/Seach the Container
+    unsigned readLock(bool upgrade) const 						{ return ContainerNode<s>::readLock(upgrade); }
+    void readUnlock(unsigned save) const 						{ 		 ContainerNode<s>::readUnlock(save);}
 
 private:
-#if __cplusplus < 201101L
-	DListInNode(DListInNode const&);      ///< we are not copyable.
-	void operator =(DListInNode const&);  ///< we are not assignable.
-#else
-	DListInNode(DListInNode const&) = delete;      ///< we are not copyable.
-	void operator =(DListInNode const&) = delete;  ///< we are not assignable.
-#endif
-	R*    root_;                          ///< Pointer to list we are on.
-    N*    prev_;                          ///< Pointer to previous node on list.
-    N*    next_;                          ///< Pointer to net node on list.
+	R*    m_root;                          ///< Pointer to list we are on.
+    N*    m_prev;                          ///< Pointer to previous node on list.
+    N*    m_next;                          ///< Pointer to net node on list.
 };
 #endif

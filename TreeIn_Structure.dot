@@ -1,0 +1,18 @@
+digraph  {
+	Root;
+	Base;
+	Left;
+	Right;
+
+	Root:s -> Base:n;
+
+	Base:nw -> Root:sw [color="red"];
+	Base:w -> Left:n;
+	Base:e -> Right:n;
+
+	Left:nw -> Root:w [color="red"];
+	Left:ne -> Base:sw [color="blue"];
+
+	Right:ne -> Root:e [color="red"];
+	Right:nw -> Base:se [color="blue"];
+}

@@ -1,6 +1,3 @@
-#ifndef LISTIN_H
-#define LISTIN_H
-
 /**
 @file ListIn.h
 @brief Intrusive Singly Linked List.
@@ -8,7 +5,7 @@
 This file defines a pair of templates (ListInRoot and ListInNode) that
 implement an intrusive singly linked list.
 
-@copyright  (c) 2014 Richard Damon
+@copyright  (c) 2014-2024 Richard Damon
 @parblock
 MIT License:
 
@@ -39,12 +36,12 @@ basic List <-> Node relationship (1 List holding many Nodes), with a singly link
 
 To create this relationship, the class to act as the list derives from the template ListInRoot,
 and the class to act as the Node from ListInNode, both with a first parameter of the class name
-of the List clase, and a second parameter of the Node clasee. There is an optional integral 3rd parameter
+of the List class, and a second parameter of the Node class. There is an optional integral 3rd parameter
 to allow the classes to inherent from these multiple times if you need to represent multiple simultaneous
-relationships. This inheretance should be public, or you need to add the ListInRoot and ListInNode templates as
+relationships. This inheritance should be public, or you need to add the ListInRoot and ListInNode templates as
 friends.
 
-At the point of decleration, both classes need to be declared, so you will typically have a forward of the other
+At the point of declaration, both classes need to be declared, so you will typically have a forward of the other
 class before the definition of the class. At the point of usage of members, generally the full definition of both
 classes is needed to instance the code for the template.
 
@@ -54,7 +51,7 @@ R: The "user" type that will be derived from ListInRoot
 
 N: The "user" type that will be derived from ListInNode
 
-n: The integer parameter for the template to allow multiple useage
+n: The integer parameter for the template to allow multiple usage
 
 Root: The particular instance of ListInRoot<R, N, n> being used
 
@@ -63,68 +60,106 @@ Node: The particular instance of ListInNode<R, N, n> being used
 node: will have type N*, to be used when walking the list.
 @endparblock
 
-@par Invarients
+@invariant
 @parblock
-- if root->first_ != NULL:
- + root->first_->root_ == root
+ Given:
+ + R& root
+ + N& node
 
-- if node->root_ == NULL:
- + node->next_ == NULL
+ListInRoot:
+ + if root.m_first == nullptr
+   + root.m_last == nullptr
+ + if root.m_first !- nullptr
+   + root,m_last != nullotr
+   + root.m_first->m_root == \&root
+   + root.m_last->m_root == \&root
+   + root.m_last->m_next == nullptr
 
-- if node->next_ != NULL:
- + node->next_->root_ == node->root_
+ListInNode:
+ + if node.m_root == nullptr
+   + node.m_nest == nullptr
+ + if node.m_next == nullptr
+   + node.m_root->m_last = \&node;
+ + if node.m_next != nullptr
+   + node.m_next->m_root == node.m_root
+   + node.m_next != node.m_root->m_first
+
+Last Criteria is closet expression to the fact that root.m_first points to a node that other node points to as its m_next
 @endparblock
 
 @see DListIn.h
 @ingroup IntrusiveContainers
 */
 
+#ifndef LISTIN_H
+#define LISTIN_H
+
+#include "Container.h"
 
 // L a class derived from ListInRoot<L,N,n>
 // N a class derived from ListInNode<L,N,n>
 
-template<class R, class N, int n = 0> class ListInRoot;
-template<class R, class N, int n = 0> class ListInNode;
+template<class R, class N, ContainerThreadSafety s=ContainerNoSafety, int n = 0> class ListInRoot;
+template<class R, class N, ContainerThreadSafety s=ContainerNoSafety, int n = 0> class ListInNode;
 
 /**
 @class ListInRoot
 
 Intrusive Singly Linked List, List.
 
-@tparam L The class that will be the owner of the List. Must derive from ListInRoot<R, N, n>
+@tparam R The class that will be the owner of the List. Must derive from ListInRoot<R, N, n>
 @tparam N The class that will be the nodes of the List. Must derive from ListInNode<R, N, n>
 @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+
+@invariant
+@parblock
+ + if m_first == nullptr
+   + m_last == nullptr
+ + if m_first !- nullptr
+   + m_last != nullotr
+   + m_first->m_root == this
+   + m_last->m_root == this
+   + m_last->m_next == nullptr
+@endparblock
 
 @see ListInNode
 @ingroup IntrusiveContainers
 
 */
-template<class R, class N, int n> class ListInRoot {
-    friend ListInNode<R, N, n>;
+template<class R, class N, ContainerThreadSafety s, int n> class ListInRoot :
+    public Container<s>
+{
+    friend ListInNode<R, N, s, n>;
     friend N;
-    typedef ListInRoot<R, N, n> Root;    ///< Type of ListInRoot
-	typedef ListInNode<R, N, n> Node;    ///< Type of ListInNode
+    typedef ListInRoot<R, N, s, n> Root;    ///< Type of ListInRoot
+    typedef ListInNode<R, N, s, n> Node;    ///< Type of ListInNode
+
 protected:
     ListInRoot();
-	~ListInRoot();
-    void add(N& node);
-    void add(N* node);
-    void addFirst(N& node);
-    void addFirst(N* node);
-    void addLast(N& node);
-    void addLast(N* node);
+    ~ListInRoot();
+    void add(N& node, bool upgrade = false);
+    void add(N* node, bool upgrade = false);
+    void addFirst(N& node, bool upgrade = false);
+    void addFirst(N* node, bool upgrade = false);
+    void addLast(N& node, bool upgrade = false);
+    void addLast(N* node, bool upgrade = false);
     void remove(N& node);
     void remove(N* node);
-    N* first() const { return first_; }   ///< Return pointer to first Node on list.
+    N* first() const { return m_first; }   ///< Return pointer to first Node on list.
+    N* last() const { return m_last; }     ///< Return pointer to last Node on list
+
+    bool check() const override;
+
+	// Critical Sections used to Update the Container
+    unsigned writeLock(bool upgrade) const	                    { return Container<s>::writeLock(upgrade); }
+    void writeUnlock(unsigned save) const						{ 		 Container<s>::writeUnlock(save); }
+    // Critical Section used to Read/Search the Container
+    unsigned readLock(bool upgrade) const 						{ return Container<s>::readLock(upgrade); }
+    void readUnlock(unsigned save) const 						{ 		 Container<s>::readUnlock(save);}
+
 private:
-#if __cplusplus < 201101L
-	ListInRoot(ListInRoot const&);      ///< We are not copyable
-	void operator =(ListInRoot const&); ///< We are not assignable;
-#else
-	ListInRoot(ListInRoot const&) = delete;      ///< We are not copyable
-    void operator =(ListInRoot const&) = delete; ///< We are not assignable;
-#endif
-    N* first_;                          ///< Pointer to first Node on list
+    N* m_first;                          ///< Pointer to first Node on list
+    N* m_last;                           ///< Pointer to last Node on list
 };
 
 /**
@@ -132,46 +167,67 @@ private:
 
 Intrusive Singly Linked List, Node.
 
-@tparam L The class that will be the owner of the List. Must derive from ListInRoot<R, N, n>
+@tparam R The class that will be the owner of the List. Must derive from ListInRoot<R, N, n>
 @tparam N The class that will be the nodes of the List. Must derive from ListInNode<R, N, n>
 @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+
+@invariant
+@parblock
+ + if m_root == nullptr
+   + m_nest == nullptr
+ + if m_next == nullptr
+   + m_root->m_last = this;
+ + if m_next != nullptr
+   + m_next->m_root == m_root
+   + m_next != m_root->m_first
+
+Last Criteria is closet expression to the fact that root.m_first points to a node that other node points to as its m_next
+
+@endparblock
 
 @see ListInRoot
 @ingroup IntrusiveContainers
 
 */
-template<class R, class N, int n> class ListInNode {
-    friend ListInRoot<R, N, n>;
+template<class R, class N, ContainerThreadSafety s, int n> class ListInNode :
+    public ContainerNode<s>
+{
+    friend ListInRoot<R, N, s, n>;
     friend R;
-	typedef ListInNode<R, N, n> Node;    ///< Type of ListInNode
-    typedef ListInRoot<R, N, n> Root;    ///< Type of ListInRoot
+    typedef ListInNode<R, N, s, n> Node;    ///< Type of ListInNode
+    typedef ListInRoot<R, N, s, n> Root;    ///< Type of ListInRoot
 protected:
-    ListInNode(R& root);
-    ListInNode(R* root = 0);
+    ListInNode(R& myRoot);
+    ListInNode(R* myRoot = nullptr);
     ~ListInNode();
 
-    void addTo(R& root);
-    void addTo(R* root);
-    void addToFront(R& root);
-    void addToFront(R* root);
-    void addToEnd(R& root);
-    void addToEnd(R* root);
-    void addAfter(N& node);
-    void addAfter(N* node);
+    void addTo(R& myRoot, bool upgrade = false);
+    void addTo(R* myRoot, bool upgrade = false);
+    void addToFront(R& myRoot, bool upgrade = false);
+    void addToFront(R* myRoot, bool upgrade = false);
+    void addToEnd(R& myRoot, bool upgrade = false);
+    void addToEnd(R* myRoot, bool upgrade = false);
+    void addAfter(N& myNode, bool upgrade = false);
+    void addAfter(N* myNode, bool upgrade = false);
     void remove();
 
-    R* root() const { return root_; }   ///< Return pointer to List we are on.
-    N* next() const { return next_; }   ///< Return pointer to next Node on List.
+    R* root() const { return m_root; }   ///< Return pointer to List we are on.
+    N* next() const { return m_next; }   ///< Return pointer to next Node on List.
+    void	setRoot(R* root) { m_root = root; ContainerNode<s>::setRoot(static_cast<Root*>(root)); }
+
+    bool check() const override;
+
+	// Critical Sections used to Update the Container
+    unsigned writeLock(bool upgrade) const	{ return ContainerNode<s>::writeLock(upgrade); }
+    void writeUnlock(unsigned save) const						{ 		 ContainerNode<s>::writeUnlock(save); }
+    // Critical Section used to Read/Search the Container
+    unsigned readLock(bool upgrade) const 						{ return ContainerNode<s>::readLock(upgrade); }
+    void readUnlock(unsigned save) const 						{ 		 ContainerNode<s>::readUnlock(save);}
+
 private:
-#if __cplusplus < 201101L
-	ListInNode(ListInNode const& );      ///< we are not copyable.
-	void operator =(ListInNode const& ); ///< we are not assignable.
-#else
-    ListInNode(ListInNode const& ) = delete;      ///< we are not copyable.
-    void operator =(ListInNode const& ) = delete; ///< we are not assignable.
-#endif
-	R* root_;                           ///< Pointer to list we are on.
-    N* next_;                           ///< Pointer to next Node in list.
+// private as only this template class should be able to change
+	R* m_root;                           ///< Pointer to list we are on.
+    N* m_next;                           ///< Pointer to next Node in list.
 };
 
 #endif

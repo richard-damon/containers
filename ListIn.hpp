@@ -8,7 +8,7 @@
 This file defines a pair of templates (ListInRoot and ListInNode) that
 implement an intrusive singly linked list.
 
-@copyright  (c) 2014 Richard Damon
+@copyright  (c) 2014-2024 Richard Damon
 @parblock
 MIT License:
 
@@ -47,48 +47,126 @@ classes deriving from multiple versions of ListInRoot/ListInNode
 */
 
 /**
-Remove node from whatever list it is on, if it is on a list.
+ *
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @return True if check passes
+ */
+
+template <class R, class N, ContainerThreadSafety s, int n>
+bool ListInRoot<R, N, s, n>::check() const {
+    bool flag = true;
+    if (first()) {
+        N* node = last();
+        flag &= (node != nullptr);              // if have first, must have last
+        if (!flag) return flag;
+        Node* mynode = node;
+        flag &= (mynode->root() == this);       // last must point to us
+        flag &= (mynode->next() == nullptr);    // last must not point to more
+        node = first();
+        mynode = node;
+        flag &= (mynode->root() == this);        // first must point to us
+        while(flag && mynode){
+            flag &= mynode->check();            // check all the nodes on the list
+            mynode = mynode->next();
+        }
+    } else {
+        flag &= (last() == nullptr);            // if no first, then no last either.
+    }
+    return flag;
+}
+
+/**
+ *
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @return True if check passes
+ */
+template <class R, class N, ContainerThreadSafety s, int n>
+bool ListInNode<R, N, s, n>::check() const {
+    bool flag = true;
+    if (root()) {
+        Node* mynode = next();
+        if (mynode) {
+            flag &= mynode->root() == root();
+        } else {
+            flag &= (static_cast<Root*>(root())->last() == this);   // last in chain, so verify last
+        }
+    } else {
+        flag &= next() == nullptr;                      // no root, so we must be unattached
+    }
+    return flag;
+}
+
+/**
+ * Remove node from whatever list it is on, if it is on a list.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
 */
-template <class R, class N, int n> inline void ListInNode<R, N, n>::remove() {
-    if (root_) {
-        Root* mylist = static_cast<Root*>(root_);
+template <class R, class N, ContainerThreadSafety s, int n>
+inline void ListInNode<R, N, s, n>::remove() {
+    unsigned save = readLock(true);
+    R* root = m_root;
+    if (m_root) {
+        Root* mylist = static_cast<Root*>(m_root);
         // We are on a list, are we the first node?
-        if (mylist->first_ == this) {
+        if (mylist->m_first == this) {
+            unsigned save1 = writeLock(true);
+            R* root1 = m_root;
             // Yes, point root to next node in list (if any), and disconnect us.
-            mylist->first_ = next_;
-            next_ = 0;
-            root_ = 0;
+            mylist->m_first = m_next;
+            if(mylist->m_last == this) mylist->m_last = nullptr;
+            m_next = nullptr;
+            setRoot(nullptr);
+            root1->Root::writeUnlock(save1);
         } else {
             // We aren't the first, so find the node before us.
-            N* node = mylist->first_;
+            N* node = mylist->m_first;
 
-            while (node != 0) {
-                Node* mynode = static_cast<Node*>(node);
-                N* next = mynode->next_;
-                if (next == this) {
+            while (node != nullptr) {
+                Node* mynode = node;
+                N* nextNode = mynode->m_next;
+                if (nextNode == this) {
+                    unsigned save1 = writeLock(true);
+                    R* root1 = m_root;
                     // Found our predecessor, unlink
-                    mynode->next_ = next_;
-                    next_ = 0;
-                    root_ = 0;
+                    mynode->m_next = m_next;
+                    if(m_next == nullptr) {
+                        mylist->m_last = node;
+                    }
+                    m_next = nullptr;
+                    setRoot(nullptr);
+                    root1->Root::writeUnlock(save1);
                     break;
                 }
-                node = mynode->next_;
+                node = mynode->m_next;
                 // we could assert node here, as we should be able to find ourselves on the list
             }
         }
     }
+    root->Root::readUnlock(save);
 }
 
 
 /**
 Remove Node from List
-
-@param node node to be removed.
-If node is not on this list, nothing will be done.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node node to be removed.
+ * If node is not on this list, nothing will be done.
 */
-template <class R, class N, int n_> inline void ListInRoot<R, N, n_>::remove(N& node) {
-    Node& mynode = static_cast<Node&>(node);
-    if (mynode.root_ == this) {
+template <class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::remove(N& node) {
+    Node& mynode = node;
+    if (mynode.m_root == this) {
         // Only remove if node is on this list.
         mynode.remove();
     }
@@ -97,90 +175,123 @@ template <class R, class N, int n_> inline void ListInRoot<R, N, n_>::remove(N& 
 
 /**
 Remove Node from List
-
-@param node Pointer to node to be removed.
-If node is null, operation will be ignored.
-If node is not on this list, nothing will be done.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node Pointer to node to be removed.
+ * If node is null, operation will be ignored.
+ * If node is not on this list, nothing will be done.
 */
-template <class R, class N, int n_> inline void ListInRoot<R, N, n_>::remove(N* node) {
-    if (node != 0) remove(*node);
+template <class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::remove(N* node) {
+    if (node != nullptr) remove(*node);
 }
 
 /**
 Add node to front of our list.
-
-@param node The node to add to the list
-If node is currently on a list (even us) it is removed before being added to the list
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node The node to add to the list
+ * If node is currently on a list (even us) it is removed before being added to the list
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n_> inline void ListInRoot<R, N, n_>::addFirst(N& node) {
-    Node& mynode = static_cast<Node&>(node);
+template<class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::addFirst(N& node, bool upgrade) {
+    Node& mynode = node;
 
-    if (mynode.root_ != 0) mynode.remove();
-    mynode.root_ = static_cast<R*>(this);
-    mynode.next_ = first_;
-    first_ = &node;
+    if (mynode.m_root != nullptr) mynode.remove();
+    unsigned save = writeLock(upgrade);
+    mynode.setRoot(static_cast<R*>(this));
+    mynode.m_next = m_first;
+    m_first = &node;
+    writeUnlock(save);
 }
 
 /**
 Add node to front of our list.
-
-@param node The node to add to the list
-If node is currently on a list (even us) it is removed before being added to the list
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node The node to add to the list
+ * If node is currently on a list (even us) it is removed before being added to the list
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n_> inline void ListInRoot<R, N, n_>::addFirst(N* node) {
-    if (node != 0) addFirst(*node);
+template<class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::addFirst(N* node, bool upgrade) {
+    if (node != nullptr) addFirst(*node, upgrade);
 }
 
 /**
 Add node to end of our list.
-Note that this operation is O(n) on list current size. See DListInRoot to make this O(1).
-
-@param node The node to add to the list
-If node is currently on a list (even us) it is removed before being added to the list
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided
+ * @param node The node to add to the list
+ * If node is currently on a list (even us) it is removed before being added to the list
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
 
-template<class R, class N, int n_> inline void ListInRoot<R, N, n_>::addLast(N& node) {
-    Node& mynode = static_cast<Node&>(node);
+template<class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::addLast(N& node, bool upgrade) {
+    Node& mynode = node;
 
-    if (mynode.root_ != 0) mynode.remove();
+    unsigned save;
+    // if upgrading we already have the read lock
+    if (!upgrade) save = readLock(false);
+    if (mynode.m_root != nullptr) mynode.remove();
 
-    if (first_ == 0) {
-        first_ = &node;
+    unsigned save1 = writeLock(upgrade);
+    if (m_last == nullptr) {
+        // List is empty
+        m_first = &node;
     } else {
-        N* scannode = first_;
-        N* nextnode;
-        while (nextnode = static_cast<Node*>(scannode)->next_) {
-            scannode = nextnode;
-        }
-        static_cast<Node*>(scannode)->next_ = &node;
+        static_cast<Node*>(m_last)->m_next = &node;
     }
-    mynode.root_ = static_cast<R*>(this);
-    mynode.next_ = 0;
+    m_last  = &node;
+    mynode.setRoot(static_cast<R*>(this));
+    mynode.m_next = nullptr;
+    writeUnlock(save1);
+    if (!upgrade) readUnlock(save);
 }
 
 /**
-Add node to end of our list.
-Note that this operation is O(n) on list current size. See DListInRoot to make this O(1).
-
-@param node The node to add to the list
-If node is currently on a list (even us) it is removed before being added to the list
+ * Add node to end of our list.
+ * Note that this operation is O(n) on list current size. See DListInRoot to make this O(1).
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node The node to add to the list
+ * If node is currently on a list (even us) it is removed before being added to the list
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
 
-template<class R, class N, int n_> inline void ListInRoot<R, N, n_>::addLast(N* node) {
-    if (node != 0) addLast(*node);
+template<class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::addLast(N* node, bool upgrade) {
+    if (node != nullptr) addLast(*node, upgrade);
 }
 
 
 
 /**
-Add node to our list, at "natural" point.
-Note that this is the front for singly linked lists and the end for doubly linked list.
-
-@param node The node to add to the list
-If node is currently on a list (even us) it is removed before being added to the list
+ * Add node to our list, at "natural" point.
+ * Note that this is the front for singly linked lists and the end for doubly linked list.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node The node to add to the list
+ * If node is currently on a list (even us) it is removed before being added to the list
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n_> inline void ListInRoot<R, N, n_>::add(N& node) {
-    addFirst(node);
+template<class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::add(N& node, bool upgrade) {
+    addFirst(node, upgrade);
 }
 
 
@@ -188,32 +299,50 @@ template<class R, class N, int n_> inline void ListInRoot<R, N, n_>::add(N& node
 Add node to our list, at "natural" point.
 Note that this is the front for singly linked lists and the end for doubly linked lists.
 
-@param node The node to add to the list
-If node is nulR, Nothing is done.
-If node is currently on a list (even us) it is removed before being added to the list
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node The node to add to the list
+ * If node is nulR, Nothing is done.
+ * If node is currently on a list (even us) it is removed before being added to the list
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n_> inline void ListInRoot<R, N, n_>::add(N* node) {
-    if (node != 0) add(*node);
+template<class R, class N, ContainerThreadSafety s, int n_>
+inline void ListInRoot<R, N, s, n_>::add(N* node, bool upgrade) {
+    if (node != nullptr) add(*node, upgrade);
 }
 
 /**
 Add ourselfs to the front of a list
 
-@param root List to add to.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param myRoot List to add to.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n> inline void ListInNode<R, N, n>::addToFront(R& root) {
-    static_cast<Root&>(root).addFirst(*static_cast<N*>(this));
+template<class R, class N, ContainerThreadSafety s, int n>
+inline void ListInNode<R, N, s, n>::addToFront(R& myRoot, bool upgrade) {
+    static_cast<Root&>(myRoot).addFirst(*static_cast<N*>(this), upgrade);
 }
 
 /**
 Add ourselfs to the front of a list
 
-@param root List to add to.
-If NULL, just remove from all lists.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param myRoot List to add to.
+ * If NULL, just remove from all lists.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n> inline void ListInNode<R, N, n>::addToFront(R* root) {
-    if (root) {
-		static_cast<Root*>(root)->addFirst(*static_cast<N*>(this));
+template<class R, class N, ContainerThreadSafety s, int n>
+inline void ListInNode<R, N, s, n>::addToFront(R* myRoot, bool upgrade) {
+    if (myRoot) {
+		static_cast<Root*>(myRoot)->addFirst(*static_cast<N*>(this), upgrade);
     } else {
         remove();
     }
@@ -222,22 +351,34 @@ template<class R, class N, int n> inline void ListInNode<R, N, n>::addToFront(R*
 /**
 Add ourselfs to the end of a list
 
-@param root List to add to.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param myRoot List to add to.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n> inline void ListInNode<R, N, n>::addToEnd(R& root) {
-	static_cast<Root&>(root).addLast(*static_cast<N*>(this));
+template<class R, class N, ContainerThreadSafety s, int n>
+inline void ListInNode<R, N, s, n>::addToEnd(R& myRoot, bool upgrade) {
+	static_cast<Root&>(myRoot).addLast(*static_cast<N*>(this), upgrade);
 }
 
 
 /**
-Add ourselfs to the End of a list
-
-@param root List to add to.
-If NULL, just remove from all lists.
-*/
-template<class R, class N, int n> inline void ListInNode<R, N, n>::addToEnd(R* root) {
-	if (root) {
-		static_cast<Root*>(root)->addLast(*static_cast<N*>(this));
+ * Add ourselves to the End of a list
+ *
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param myRoot List to add to.
+ * If NULL, just remove from all lists.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
+ */
+template<class R, class N, ContainerThreadSafety s, int n>
+inline void ListInNode<R, N, s, n>::addToEnd(R* myRoot, bool upgrade) {
+	if (myRoot) {
+		static_cast<Root*>(myRoot)->addLast(*static_cast<N*>(this), upgrade);
 	} else {
 		remove();
 	}
@@ -246,31 +387,45 @@ template<class R, class N, int n> inline void ListInNode<R, N, n>::addToEnd(R* r
 /**
 Add ourself to a list after another node.
 
-@param node The node to add ourself after.
-If node is not on a list, do nothing.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node The node to add ourself after.
+ * If node is not on a list, do nothing.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
 
-template<class R, class N, int n> inline void ListInNode<R, N, n>::addAfter(N& node) {
-	Node &mynode = static_cast<Node&>(node);
+template<class R, class N, ContainerThreadSafety s, int n>
+inline void ListInNode<R, N, s, n>::addAfter(N& node, bool upgrade) {
+	Node &mynode = node;
 	N* me = static_cast<N*>(this);
-	if (mynode.root_ && &node != me) {
+	if (mynode.m_root && &node != me) {
 		remove();
-		root_ = mynode.root_;
-		next_ = mynode.next_;
-		mynode.next_ = me;
+    	unsigned save = mynode.writeLock(upgrade);
+		setRoot(mynode.m_root);
+		m_next = mynode.m_next;
+		mynode.m_next = me;
+    	mynode.writeUnlock(save);
 	}
 }
 
 /**
 Add ourself to a list after another node.
 
-@param node The node to add ourself after.
-If Node is NULL, or not on a list, do nothing.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param node The node to add ourself after.
+ * If Node is NULL, or not on a list, do nothing.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
 
-template<class R, class N, int n> inline void ListInNode<R, N, n>::addAfter(N* node) {
-	if (node != 0) {
-		addAfter(*node);
+template<class R, class N, ContainerThreadSafety s, int n>
+inline void ListInNode<R, N, s, n>::addAfter(N* node, bool upgrade) {
+	if (node != nullptr) {
+		addAfter(*node, upgrade);
 	}
 }
 
@@ -278,20 +433,32 @@ template<class R, class N, int n> inline void ListInNode<R, N, n>::addAfter(N* n
 Add ourself to a list at "natural" postion.
 Note that this is the front for singly linked lists, and the end for doubly linked lists.
 
-@param root List to add to.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param myRoot List to add to.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n> void ListInNode<R, N, n>::addTo(R& root) {
-    addToFront(root);
+template<class R, class N, ContainerThreadSafety s, int n>
+void ListInNode<R, N, s, n>::addTo(R& myRoot, bool upgrade) {
+    addToFront(myRoot, upgrade);
 }
 
 /**
 Add ourself to a list at "natural" postion.
 Note that this is the front for singly linked lists, and the end for doubly linked lists.
 
-@param root List to add to.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+ * @param myRoot List to add to.
+ * @param upgrade Set True if caller has an upgradable Read Lock (Used by SortDListInNode)
 */
-template<class R, class N, int n> void ListInNode<R, N, n>::addTo(R* root) {
-    addToFront(root);
+template<class R, class N, ContainerThreadSafety s, int n>
+void ListInNode<R, N, s, n>::addTo(R* myRoot, bool upgrade) {
+    addToFront(myRoot, upgrade);
 }
 
 
@@ -299,48 +466,74 @@ template<class R, class N, int n> void ListInNode<R, N, n>::addTo(R* root) {
 Constructor.
 
 Starts us as an empty list.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
 */
-template <class R, class N, int n> ListInRoot<R, N, n>::ListInRoot() :
-first_(0) {}
+template <class R, class N, ContainerThreadSafety s, int n>
+ListInRoot<R, N, s, n>::ListInRoot() :
+m_first(nullptr) {}
 
 /**
 Destructor.
 
 Removes all nodes attached to us.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
 */
-template <class R, class N, int n> ListInRoot<R, N, n>::~ListInRoot() {
-    while (first_) remove(first_);
+template <class R, class N, ContainerThreadSafety s, int n>
+ListInRoot<R, N, s, n>::~ListInRoot() {
+    while (m_first) remove(m_first);
 }
 
 /**
 Constructor.
 
-@param root Pointer to list for node to be added to (if not NULL).
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+@param myRoot Pointer to list for node to be added to (if not NULL).
 */
-template <class R, class N, int n> ListInNode<R, N, n>::ListInNode(R* root) :
-root_(0),
-next_(0) {
-    if (root) addTo(root);
+template <class R, class N, ContainerThreadSafety s, int n>
+ListInNode<R, N, s, n>::ListInNode(R* myRoot) :
+ContainerNode<s>(nullptr),
+m_root(nullptr),
+m_next(nullptr) {
+    if (myRoot) addTo(myRoot);
 }
 
 /**
 Constructor.
 
-@param root list we are to be added to.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
+@param myRoot list we are to be added to.
 */
-template <class R, class N, int n> ListInNode<R, N, n>::ListInNode(R& root) :
-root_(0),
-next_(0) 
+template <class R, class N, ContainerThreadSafety s, int n>
+ListInNode<R, N, s, n>::ListInNode(R& myRoot) :
+m_root(0),
+m_next(0) 
 {
-    addTo(root);
+    addTo(myRoot);
 }
 
 /**
 Destructor.
 
 Remove us from we are on, if any.
+ * @tparam R The class that will be the owner of the Tree. Must derive from TreeInRoot<R, N, K, n>
+ * @tparam N The class that will be the nodes of the Tree. Must derive from TreeInNode<R, N, K, n>
+ * @tparam s The ContainerThreadSafety value to define the thread safety model of the Container
+ * @tparam n A numerical parameter to allow a give List/Node combination to have multiple list-node relationships. Defaults to 0 if not provided.
 */
-template <class R, class N, int n> ListInNode<R, N, n>::~ListInNode() {
+template <class R, class N, ContainerThreadSafety s, int n>
+ListInNode<R, N, s, n>::~ListInNode() {
     remove();
 }
 #endif

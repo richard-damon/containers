@@ -19,7 +19,15 @@
 *.exe
 *.out
 *.app
+*.elf
+
+# Misc
+.DS_Store
+._*
+doxygen_log.txt
 
 # Directories
+cmake-build-debug/
 docs/
 .svn/
+.idea/
